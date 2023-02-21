@@ -12,10 +12,9 @@ lazy val root = (project in file("."))
       Dependencies.sparkCore,
       Dependencies.sparkSql,
       Dependencies.sparkHive,
-      Dependencies.delta
+      Dependencies.delta,
+      Dependencies.iceberg
     )
   )
 
 fork := true
-
-// See https://www.scala-sbt.org/1.x/docs/Using-Sonatype.html for instructions on how to publish to Sonatype.

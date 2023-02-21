@@ -6,4 +6,5 @@ object Dependencies {
   lazy val sparkHive = "org.apache.spark" %% "spark-hive" % "3.3.1"
 
   lazy val delta = "io.delta" %% "delta-core" % "2.2.0"
+  lazy val iceberg = "org.apache.iceberg" %% "iceberg-spark-runtime-3.3" % "1.1.0"
 }
