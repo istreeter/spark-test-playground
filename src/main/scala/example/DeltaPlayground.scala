@@ -9,8 +9,8 @@ object DeltaPlayground {
     setupDelta()
     setupParquet()
 
-    // copy1()
-    copy2()
+    copy1()
+    //copy2()
   }
 
   /* Initialize a delta table */
@@ -35,12 +35,14 @@ object DeltaPlayground {
         USING DELTA
         """)
 
+    /*
     spark.sql("""
       INSERT INTO test_delta (event_id, context_1, context_2, load_tstamp)
       VALUES ('aaa', 42, 42, '2022-02-02 00:00:00')
       """)
 
     spark.sql("OPTIMIZE test_delta")
+    */
 
     spark.close()
   }
@@ -68,10 +70,12 @@ object DeltaPlayground {
         USING parquet
         """)
 
-    spark.sql("""
-      INSERT INTO test_parquet (event_id, context_1, context_new)
-      VALUES ('aaa', 42, 42), ('bbb', 42, 42), ('ccc', 42, 42)
-      """)
+    (1 to 1000).foreach { _ =>
+      spark.sql("""
+        INSERT INTO test_parquet (event_id, context_1, context_new)
+        VALUES ('aaa', 42, 42), ('bbb', 42, 42), ('ccc', 42, 42)
+        """)
+    }
 
     spark.close()
 
@@ -125,7 +129,7 @@ object DeltaPlayground {
     // And now copy
     spark.sql("""
       INSERT INTO test_delta (event_id, context_1, context_2, context_new, load_tstamp)
-      SELECT event_id, context_1, null, context_new, current_timestamp() FROM parquet_source
+      SELECT /*+ REBALANCE */ event_id, context_1, null, context_new, current_timestamp() FROM parquet_source
       """)
 
     spark.close()
