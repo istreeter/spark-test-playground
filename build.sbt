@@ -14,7 +14,8 @@ lazy val root = (project in file("."))
       Dependencies.sparkHive,
       Dependencies.delta,
       Dependencies.iceberg
-    )
+   ),
+    javaOptions += "-Xmx1G"
   )
 
 fork := true

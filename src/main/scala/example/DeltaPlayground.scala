@@ -3,18 +3,25 @@ package example
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions.current_timestamp
 
+import java.util.UUID
+import scala.reflect.io.Directory
+import java.io.File
+
 object DeltaPlayground {
 
   def run(): Unit = {
     setupDelta()
-    setupParquet()
+    //setupParquet()
 
-    copy1()
-    //copy2()
+    //copy1()
+    copy2()
   }
 
   /* Initialize a delta table */
   def setupDelta(): Unit = {
+
+    val dir = new Directory(new File("./warehouse/test_delta"))
+    dir.deleteRecursively()
 
     val spark = SparkSession
       .builder
@@ -28,8 +35,8 @@ object DeltaPlayground {
     spark.sql("""
         CREATE TABLE test_delta (
           event_id string,
-          context_1 int,
-          context_2 int,
+          context_1 long,
+          context_2 long,
           load_tstamp timestamp
         )
         USING DELTA
@@ -54,28 +61,30 @@ object DeltaPlayground {
    */
   def setupParquet(): Unit = {
 
+    val dir = new Directory(new File("./warehouse/test_parquet"))
+    dir.deleteRecursively()
+
     val spark = SparkSession
       .builder
       .appName("myapp")
-      .master("local[1]")
+      .master("local[*]")
       .config("spark.sql.warehouse.dir", "./warehouse")
       .getOrCreate
 
-    spark.sql("""
-        CREATE TABLE test_parquet (
-          event_id string,
-          context_1 int,
-          context_new int
-        )
-        USING parquet
-        """)
+    import spark.implicits._
 
-    (1 to 1000).foreach { _ =>
-      spark.sql("""
-        INSERT INTO test_parquet (event_id, context_1, context_new)
-        VALUES ('aaa', 42, 42), ('bbb', 42, 42), ('ccc', 42, 42)
-        """)
-    }
+    val thousand = 1024
+    //val million = thousand << 10
+    val eventsPerFile = 250 * thousand
+    val numFiles = 200
+
+    spark.range(0, eventsPerFile * numFiles, 1, numFiles)
+      .map { i =>
+        (UUID.randomUUID().toString, i, i)
+      }
+      .toDF("event_id", "context_1", "context_new")
+      .write
+      .parquet("./warehouse/test_parquet")
 
     spark.close()
 
@@ -96,18 +105,20 @@ object DeltaPlayground {
     val spark = SparkSession
       .builder
       .appName("myapp")
-      .master("local[*]")
+      .master("local[1]") // Number of worker threads.
       .config("spark.sql.warehouse.dir", "./warehouse")
       .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
       .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+      .config("spark.local.dir", "./tmp")
+      .config("spark.sql.files.maxPartitionBytes", "8224MB")
       .getOrCreate
 
     // Tell Spark where to find the files
     spark.sql("""
         CREATE EXTERNAL TABLE parquet_source (
           event_id string,
-          context_1 int,
-          context_new int
+          context_1 long,
+          context_new long
         )
         USING parquet
         LOCATION './test_parquet'
@@ -123,13 +134,13 @@ object DeltaPlayground {
     // Prepare delta table to receive the new context
     spark.sql("""
         ALTER TABLE test_delta
-        ADD COLUMN context_new int
+        ADD COLUMN context_new long
         """)
 
     // And now copy
     spark.sql("""
       INSERT INTO test_delta (event_id, context_1, context_2, context_new, load_tstamp)
-      SELECT /*+ REBALANCE */ event_id, context_1, null, context_new, current_timestamp() FROM parquet_source
+      SELECT event_id, context_1, null, context_new, current_timestamp() FROM parquet_source
       """)
 
     spark.close()
@@ -144,9 +155,11 @@ object DeltaPlayground {
     val spark = SparkSession
       .builder
       .appName("myapp")
-      .master("local[*]")
+      .master("local[1]")
       .config("spark.sql.warehouse.dir", "./warehouse")
       .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+      .config("spark.local.dir", "./tmp")
+      .config("spark.sql.files.maxPartitionBytes", "8224MB")
       .getOrCreate
 
     spark
