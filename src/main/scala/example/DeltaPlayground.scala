@@ -14,7 +14,8 @@ object DeltaPlayground {
     //setupParquet()
 
     //copy1()
-    copy2()
+    //copy2()
+    fullyStreaming()
   }
 
   /* Initialize a delta table */
@@ -173,6 +174,67 @@ object DeltaPlayground {
       .save("./warehouse/test_delta")
 
     spark.close()
+  }
+
+  /** This conceptually represents a fully streaming application, working on 5 minute windows of data
+   *
+   *  The implementation here corresponds to a single window.  It can read any number of events
+   *  from the stream and it does not run out of memory.
+   *
+   *  It creates a single very large output file.
+   */
+  def fullyStreaming(): Unit = {
+
+    val dir = new Directory(new File("./checkpoints"))
+    dir.deleteRecursively()
+
+    val spark = SparkSession
+      .builder
+      .appName("myapp")
+      .master("local[1]")
+      .config("spark.sql.warehouse.dir", "./warehouse")
+      .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+      .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+      .config("spark.local.dir", "./tmp")
+      .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "8224MB")
+      //.config("spark.cleaner.referenceTracking.cleanCheckpoints", "true") // doesn't do anything?
+      .getOrCreate
+
+    spark.sparkContext.setCheckpointDir("./checkpoints")
+
+    import spark.implicits._
+
+    val eventsPerDataframe = 250_000
+    val numDataframes = 200
+
+    /** Continually reads from a stream and creates out-of-memory datasets.  Uses local disk. */
+    val dataframes = (1 to numDataframes).map { batchId =>
+      val rows = (1 to eventsPerDataframe).map { i =>
+          (UUID.randomUUID().toString, i.toLong, i.toLong)
+        }
+      val viewName = s"view_$batchId"
+      spark
+        .createDataFrame(rows)
+        .toDF("event_id", "context_1", "context_new")
+        .checkpoint
+        .createTempView(viewName)
+      spark.table(viewName)
+    }
+
+    /** End of the window.  Flush all the cached datasets to storage (S3, GCS) */
+    dataframes.reduce(_.union(_))
+      .hint("rebalance")
+      .withColumn("load_tstamp", current_timestamp())
+      .write
+      .format("delta")
+      .mode("append")
+      .option("mergeSchema", true)
+      .save("./warehouse/test_delta")
+
+    spark.close()
+
+    /** Checkpoint the stream (kinesis/pubsub) here */
+
   }
 
 }
